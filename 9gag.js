@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         9gag show profile age
-// @version      0.2
+// @version      0.2.1
 // @updateURL    https://raw.githubusercontent.com/andiabrudan/TamperScripts/master/9gag.js
 // @downloadURL  https://raw.githubusercontent.com/andiabrudan/TamperScripts/master/9gag.js
 // @supportURL   https://github.com/andiabrudan/TamperScripts/issues
@@ -77,12 +77,13 @@ function watch_children(element, callback)
             return;
         }
         for (const mutation of mutations_list) {
-            if (!mutation.addedNodes) return
-            mutation.addedNodes.forEach(node => {
-                if (node instanceof HTMLElement) {
-                    callback(node);
-                }
-            });
+            if (mutation.addedNodes){
+                mutation.addedNodes.forEach(node => {
+                    if (node instanceof HTMLElement) {
+                        callback(node);
+                    }
+                });
+            }
         }
     });
     mutObs.observe(element, {childList: true})
@@ -110,7 +111,7 @@ async function process_batch(batchElem)
 async function process_single(postElem)
 {
     // Early exit if the element is not an 9gag article
-    if (!postElem.tagName === 'ARTICLE' || !postElem.id.startsWith("jsid-post-")) {
+    if (postElem.tagName !== 'ARTICLE' || !postElem.id.startsWith("jsid-post-")) {
         return;
     }
 
