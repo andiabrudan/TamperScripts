@@ -15,7 +15,7 @@
 'use strict';
 
 /**
- * Waits for an element to appear in the DOM then returns it. 
+ * Waits for an element to appear in the DOM then returns it.
  * @param {string} elemId The ID of the element that should be awaited
  * @returns {Promise} A promise that will eventually resolve to the element with the given ID
  */
@@ -69,13 +69,15 @@ async function process_batch(containerElem)
 
 function get_user_cache(URL)
 {
-    let cachedItem = localStorage.getItem(URL);
-    if (!cachedItem)
-        return false;
-    let json = JSON.parse(cachedItem);
-    if (new Date(json['date'] + 12 * 60 * 60 * 1000) < new Date())
-        return false;
-    return json['days'];
+    const cachedItem = localStorage.getItem(URL);
+    if (!cachedItem) return false;
+
+    const json = JSON.parse(cachedItem);
+
+    const expiry = new Date(json.date + 12 * 60 * 60 * 1000);
+    if (expiry < new Date()) return false;
+
+    return json.days;
 }
 
 function set_user_cache(URL, days)
@@ -97,9 +99,8 @@ async function process_single(postElem)
     let days = 0;
 
     const accountURL = postElem.querySelector("header > div > div.ui-post-creator > a.ui-post-creator__author").href
-    debugger;
     days = get_user_cache(accountURL);
-    
+
     if (!days) {
         const response = await fetch(accountURL);
         if (response.ok) {
@@ -111,15 +112,15 @@ async function process_single(postElem)
             const jsonParse = regex.exec(wholePage)[0];
 
             // Execute the string extracted. Should be valid JS
-            const json = eval(jsonParse);
+            const json = eval(jsonParse); // eslint-disable-line no-eval
 
             // Get account creation timestamp
-            const createdTs = json['data']['profile']['creationTs'];
+            const createdTs = json.data.profile.creationTs;
 
             // Convert to days past since
             days = new Date() - new Date(createdTs * 1000);
             days = Math.ceil(days / (1000 * 3600 * 24));
-            
+
             set_user_cache(accountURL, days);
         }
         else {
