@@ -1,6 +1,9 @@
 // ==UserScript==
 // @name         9gag show profile age
 // @version      0.1
+// @updateURL    https://raw.githubusercontent.com/andiabrudan/TamperScripts/master/9gag.js
+// @downloadURL  https://raw.githubusercontent.com/andiabrudan/TamperScripts/master/9gag.js
+// @supportURL   https://github.com/andiabrudan/TamperScripts/issues
 // @description  Script to retrieve an account's age from their profile and show it adjacent to the post they created
 // @author       Andi
 // @match        https://9gag.com/*
@@ -177,7 +180,6 @@ async function main()
     // Install a permanent mutation observer on the container element
     // that only watches immediate children
     watch_children(posts, process_batch);
-
 }
 
 main();
