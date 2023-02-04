@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         9gag show profile age
-// @version      0.1
+// @version      0.2
 // @updateURL    https://raw.githubusercontent.com/andiabrudan/TamperScripts/master/9gag.js
 // @downloadURL  https://raw.githubusercontent.com/andiabrudan/TamperScripts/master/9gag.js
 // @supportURL   https://github.com/andiabrudan/TamperScripts/issues
@@ -13,6 +13,35 @@
 // ==/UserScript==
 
 'use strict';
+
+function get_user_cache(accountURL)
+{
+    const cachedItem = localStorage.getItem(accountURL);
+    if (!cachedItem) return false;
+
+    const json = JSON.parse(cachedItem);
+
+    const expiry = new Date(json.date + 12 * 60 * 60 * 1000);
+    if (expiry < new Date()) return false;
+
+    console.log("Got cache hit for URL", accountURL);
+    return json.days;
+}
+
+function set_user_cache(accountURL, days)
+{
+    let json = {
+        "days": days,
+        "date": Date.now()
+    }
+    localStorage.setItem(accountURL, JSON.stringify(json));
+}
+
+Function.prototype.bindBack = function(fn, ...bound_args) {
+    return function(...args) {
+        return fn(...args, ...bound_args);
+    };
+}
 
 /**
  * Waits for an element to appear in the DOM then returns it.
@@ -41,7 +70,12 @@ async function wait_elem(elemId)
  */
 function watch_children(element, callback)
 {
-    const mutObs = new MutationObserver((mutations_list, _) => {
+    const mutObs = new MutationObserver((mutations_list, me) => {
+        // Stop observing if element is destroyed
+        if (!element) {
+            me.disconnect();
+            return;
+        }
         for (const mutation of mutations_list) {
             if (!mutation.addedNodes) return
             mutation.addedNodes.forEach(node => {
@@ -55,38 +89,17 @@ function watch_children(element, callback)
 }
 
 /**
- * Posts are loaded in batches on 9gag. Process a batch.
- * @param {HTMLElement} containerElem A <div> element containing 2 or more <article>
+ * Processes a batch of 9gag posts nested under a single batch element.
+ * Installs an observer on the batch element so that any new asynchronously added
+ * elements will be processed as well.
+ * @param {HTMLElement} batchElem 
  */
-async function process_batch(containerElem)
+async function process_batch(batchElem)
 {
-    for (let postElem of containerElem.children) {
-        if (postElem.tagName === 'ARTICLE' && postElem.id.startsWith("jsid-post-")) {
-            process_single(postElem);
-        }
+    for (const postElem of batchElem.children) {
+        process_single(postElem);
     }
-}
-
-function get_user_cache(URL)
-{
-    const cachedItem = localStorage.getItem(URL);
-    if (!cachedItem) return false;
-
-    const json = JSON.parse(cachedItem);
-
-    const expiry = new Date(json.date + 12 * 60 * 60 * 1000);
-    if (expiry < new Date()) return false;
-
-    return json.days;
-}
-
-function set_user_cache(URL, days)
-{
-    let json = {
-        "days": days,
-        "date": Date.now()
-    }
-    localStorage.setItem(URL, JSON.stringify(json));
+    watch_children(batchElem, process_single);
 }
 
 /**
@@ -96,6 +109,12 @@ function set_user_cache(URL, days)
  */
 async function process_single(postElem)
 {
+    // Early exit if the element is not an 9gag article
+    if (!postElem.tagName === 'ARTICLE' || !postElem.id.startsWith("jsid-post-")) {
+        return;
+    }
+
+    console.log("Now processing ", postElem.id);
     let days = 0;
 
     const accountURL = postElem.querySelector("header > div > div.ui-post-creator > a.ui-post-creator__author").href
@@ -174,12 +193,13 @@ async function main()
     const posts = await wait_elem("list-view-2");
 
     // Process children that were added before installing the observer
-    for (let postElem of posts.children) {
-        process_batch(postElem);
+    for (const batchElem of posts.children) {
+        process_batch(batchElem);
     }
 
-    // Install a permanent mutation observer on the container element
-    // that only watches immediate children
+    // Install a permanent mutation observer on the main container element
+    // Then, install a mutation observer on any new batch container that is added.
+    // Posts may load asynchronously in a batch.
     watch_children(posts, process_batch);
 }
 
