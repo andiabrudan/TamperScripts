@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         9gag show profile age
-// @version      0.2.1
+// @version      0.3.0
 // @updateURL    https://raw.githubusercontent.com/andiabrudan/TamperScripts/master/9gag.js
 // @downloadURL  https://raw.githubusercontent.com/andiabrudan/TamperScripts/master/9gag.js
 // @supportURL   https://github.com/andiabrudan/TamperScripts/issues
@@ -13,6 +13,17 @@
 // ==/UserScript==
 
 'use strict';
+
+const HEADER_MAIN_PATH = "header > div > div.ui-post-creator";
+const HEADER_AUTHOR_PATH = "header > div > div.ui-post-creator > a.ui-post-creator__author";
+
+const VERIFY_MESSAGE = "Manually verify the user. \
+Turns the text to green even for young accounts. \
+Useful for avoiding false positives.";
+
+const UNVERIFY_MESSAGE = "Unverify the user. \
+If you accidentally verified a user, just click \
+here to revert the status.";
 
 function get_user_cache(accountURL)
 {
@@ -37,9 +48,14 @@ function set_user_cache(accountURL, days)
     localStorage.setItem(accountURL, JSON.stringify(json));
 }
 
-function mark_user_verified_cache()
+function mark_user_verified_cache(accountURL, verifiedStatus)
 {
-    
+    const cachedItem = localStorage.getItem(accountURL);
+    if (!cachedItem) return false;
+
+    const json = JSON.parse(cachedItem);
+    json.verified = verifiedStatus;
+    localStorage.setItem(accountURL, JSON.stringify(json));
 }
 
 Function.prototype.bindBack = function(fn, ...bound_args) {
@@ -142,7 +158,8 @@ async function process_single(postElem)
         return;
     }
 
-    const accountURL = postElem.querySelector("header > div > div.ui-post-creator > a.ui-post-creator__author").href;
+    const accountURL = postElem.querySelector(HEADER_AUTHOR_PATH).href;
+    const accountId = accountURL.substring("https://9gag.com/u/".length);
     // Hidden users have 'javascript:void' instead of an url
     if (accountURL === "javascript:void(0);") {
         return;
@@ -155,8 +172,6 @@ async function process_single(postElem)
         ({days, verified, expired} = cacheResult);
     }
 
-    let daysOldElement = null;
-    let verifiedElement = null;
     if (!isCached || expired) {
         const json = await request_user_profile(accountURL);
         if (json) {
@@ -167,34 +182,85 @@ async function process_single(postElem)
             days = Math.ceil(days / (1000 * 3600 * 24));
 
             set_user_cache(accountURL, days);
-            daysOldElement = build_element_daysOld(days);
+            build_and_append_extra_header(postElem, accountURL, days, false);
         }
         else {
-            daysOldElement = build_element_errorMsg();
+            let errElem = build_element_errorMsg(accountURL);
+            postElem.querySelector(HEADER_MAIN_PATH).append(errElem);
         }
     }
-    else /*user is cached and not expired*/{
-        daysOldElement = build_element_daysOld(days);
-        verifiedElement = build_element_daysOld(days);
+    else /*user is cached and not expired*/ {
+        build_and_append_extra_header(postElem, accountURL, days, verified);
     }
-    // Append new element to post
-    const postHeader = postElem.querySelector("header > div > div.ui-post-creator");
-    postHeader.append(daysOldElement);
 }
 
-function build_element_errorMsg()
+function build_and_append_extra_header(parentElem, accountURL, days, verified)
 {
-    color = "orange";
-    fontSize = 14;
-    extraStyle = "margin-left: 10px";
-    message = "Request failed";
-    return create_text_element(message, fontSize, color, extraStyle);
+    const divContainer = document.createElement("div");
+
+    const elemDaysOld = build_element_daysOld(days, verified);
+    divContainer.appendChild(elemDaysOld);
+
+    const elemVerified = build_element_verified(parentElem, divContainer, accountURL, days, verified);
+    divContainer.appendChild(elemVerified);
+
+    const postHeader = parentElem.querySelector(HEADER_MAIN_PATH);
+    postHeader.append(divContainer);
 }
 
-function build_element_daysOld(days)
+function build_element_verified(postElem, parentElem, accountURL, days, verified)
 {
-    const color = rgb_to_hex(...days_to_rgb(days));
-    const fontSize = days < 100 ? 20 : 14;
+    verified = !verified;
+    const element = document.createElement("button");
+    element.style = "margin-left: 10px; background-color: #3C4043;";
+    element.className = "user-script-tooltip-container";
+    
+
+    // const tooltipElem = document.createElement("span");
+    // tooltipElem.className = "user-script-tooltip";
+
+    // If the user is manually verified, display an X to cancel verification
+    // Otherwise display a checkmark to verify. Note, the flag is inverted here.
+    if (verified) {
+        element.textContent = "\u2714";
+        element.title = VERIFY_MESSAGE;
+    }
+    else {
+        element.textContent = "\u274C";
+        element.title = UNVERIFY_MESSAGE;
+    }
+
+    // Execute 3 functions on click.
+    // 1. Set the user as verified in local storage
+    // 2. Remove the old div in the header
+    // 3. Recreate header
+    element.onclick = () => {
+        mark_user_verified_cache(accountURL, verified);
+        parentElem.remove();
+        build_and_append_extra_header(postElem, accountURL, days, verified);
+    }
+    return element;
+}
+
+function build_element_errorMsg(accountURL)
+{
+    const color = "orange";
+    const fontSize = 14;
+    const extraStyle = "margin-left: 10px";
+    const message = "Request failed";
+    const element = create_text_element(message, fontSize, color, extraStyle);
+    element.id = accountURL;
+    return element;
+}
+
+function build_element_daysOld(days, verified)
+{
+    let color = rgb_to_hex(...days_to_rgb(days));
+    let fontSize = days < 100 ? 20 : 14;
+    if (verified) {
+        color = "#00FF00";
+        fontSize = 14;
+    }
     const extraStyle = "margin-left: 10px;"
     const message = `${days} days old`
     return create_text_element(message, fontSize, color, extraStyle);
