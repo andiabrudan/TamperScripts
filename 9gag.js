@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         9gag show profile age
-// @version      0.3.0
+// @version      0.4.0
 // @updateURL    https://raw.githubusercontent.com/andiabrudan/TamperScripts/master/9gag.js
 // @downloadURL  https://raw.githubusercontent.com/andiabrudan/TamperScripts/master/9gag.js
 // @supportURL   https://github.com/andiabrudan/TamperScripts/issues
@@ -25,6 +25,12 @@ const UNVERIFY_MESSAGE = "Unverify the user. \
 If you accidentally verified a user, just click \
 here to revert the status.";
 
+const BOT_WARNING_MESSAGE = "This user is likely a bot. \
+This has been determined by looking at the user's recent history. \
+There are a large number of articles posted in a short amount of time, \
+typical of bot activity. Please manually review before blocking. \
+";
+
 function get_user_cache(accountURL)
 {
   const cachedItem = localStorage.getItem(accountURL);
@@ -36,13 +42,15 @@ function get_user_cache(accountURL)
 
   return {days: json.days,
           verified: json.verified || false,
-          expired: expiry < new Date()};
+          expired: expiry < new Date(),
+          isBot: json.is_bot || false};
 }
 
-function set_user_cache(accountURL, days)
+function set_user_cache(accountURL, days, isBot)
 {
     let json = {
         "days": days,
+        "is_bot": isBot,
         "date": Date.now()
     }
     localStorage.setItem(accountURL, JSON.stringify(json));
@@ -55,6 +63,9 @@ function mark_user_verified_cache(accountURL, verifiedStatus)
 
     const json = JSON.parse(cachedItem);
     json.verified = verifiedStatus;
+    if (verifiedStatus && json.is_bot) {
+        json.is_bot = false;
+    }
     localStorage.setItem(accountURL, JSON.stringify(json));
 }
 
@@ -177,12 +188,14 @@ async function process_single(postElem)
         if (json) {
             const createdTs = json.data.profile.creationTs;
 
+            const likelyBot = analyze_user_posts(json.data.posts);
+
             // Convert to days past since
             days = new Date() - new Date(createdTs * 1000);
             days = Math.ceil(days / (1000 * 3600 * 24));
 
-            set_user_cache(accountURL, days);
-            build_and_append_extra_header(postElem, accountURL, days, false);
+            set_user_cache(accountURL, days, likelyBot);
+            build_and_append_extra_header(postElem, accountURL, days, false, likelyBot);
         }
         else {
             let errElem = build_element_errorMsg(accountURL);
@@ -194,7 +207,29 @@ async function process_single(postElem)
     }
 }
 
-function build_and_append_extra_header(parentElem, accountURL, days, verified)
+function analyze_user_posts(postsJSON) {
+    // We get a maximum of 10 posts to work with
+    // Users with few posts are unlikely to be bots
+    if (postsJSON.length < 7)
+        return false;
+
+    let cumulativeDelta = 0;
+    let lastPostTs = new Date() / 1000;
+    for (const post of postsJSON) {
+        cumulativeDelta += lastPostTs - post.creationTs;
+        lastPostTs = post.creationTs;
+    }
+
+    const THRESHOLD_INTERVAL = 12 * 60 * 60;
+    if ((cumulativeDelta / postsJSON.length) < THRESHOLD_INTERVAL){
+        return true;
+    }
+    else {
+        return false;
+    }
+}
+
+function build_and_append_extra_header(parentElem, accountURL, days, verified, likelyBot = false)
 {
     const divContainer = document.createElement("div");
 
@@ -204,8 +239,24 @@ function build_and_append_extra_header(parentElem, accountURL, days, verified)
     const elemVerified = build_element_verified(parentElem, divContainer, accountURL, days, verified);
     divContainer.appendChild(elemVerified);
 
+    if (likelyBot && !verified) {
+        const elemLikelyBot = build_element_likelyBot();
+        divContainer.appendChild(elemLikelyBot);
+    }
+
     const postHeader = parentElem.querySelector(HEADER_MAIN_PATH);
     postHeader.append(divContainer);
+}
+
+function build_element_likelyBot()
+{
+    const message = "Likely Bot!";
+    const fontSize = 14;
+    const color = "orange";
+    const extraStyle = "margin-left: 10px;";
+    const element = create_text_element(message, fontSize, color, extraStyle);
+    element.title = BOT_WARNING_MESSAGE;
+    return element;
 }
 
 function build_element_verified(postElem, parentElem, accountURL, days, verified)
