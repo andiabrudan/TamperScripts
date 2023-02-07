@@ -16,16 +16,16 @@
 
 function get_user_cache(accountURL)
 {
-    const cachedItem = localStorage.getItem(accountURL);
-    if (!cachedItem) return false;
+  const cachedItem = localStorage.getItem(accountURL);
+  if (!cachedItem) return false;
 
-    const json = JSON.parse(cachedItem);
+  const json = JSON.parse(cachedItem);
 
-    const expiry = new Date(json.date + 12 * 60 * 60 * 1000);
-    if (expiry < new Date()) return false;
+  const expiry = new Date(json.date + 12 * 60 * 60 * 1000);
 
-    console.log("Got cache hit for URL", accountURL);
-    return json.days;
+  return {days: json.days,
+          verified: json.verified || false,
+          expired: expiry < new Date()};
 }
 
 function set_user_cache(accountURL, days)
@@ -35,6 +35,11 @@ function set_user_cache(accountURL, days)
         "date": Date.now()
     }
     localStorage.setItem(accountURL, JSON.stringify(json));
+}
+
+function mark_user_verified_cache()
+{
+    
 }
 
 Function.prototype.bindBack = function(fn, ...bound_args) {
@@ -104,6 +109,28 @@ async function process_batch(batchElem)
 }
 
 /**
+ * Makes an HTTP request to a given address and returns a parsed json of the information retrived.
+ * @param {string} accountURL A URL to a user profile
+ * @returns A json object containing information about the user, or false if the request fails.
+ */
+async function request_user_profile(accountURL)
+{
+    console.log("Fetching from ", accountURL);
+    const response = await fetch(accountURL);
+    if (!response.ok) {
+        return false;
+    }
+
+    const wholePage = await response.text();
+    // Extract the part that has JSON.parse(...)
+    const regex = /JSON\.parse\(".+"\);/s;
+    const jsonParse = regex.exec(wholePage)[0];
+    // Execute the string extracted. Should be valid JS
+    const json = eval(jsonParse); // eslint-disable-line no-eval
+    return json;
+}
+
+/**
  * Processes a single post. Gets the URL of the user from the post and retrieves information from it,
  * then modifies the post by adding the information next to their name.
  * @param {HTMLElement} userURL An <article> that is a 9gag post
@@ -115,26 +142,19 @@ async function process_single(postElem)
         return;
     }
 
-    console.log("Now processing ", postElem.id);
-    let days = 0;
+    const accountURL = postElem.querySelector("header > div > div.ui-post-creator > a.ui-post-creator__author").href;
 
-    const accountURL = postElem.querySelector("header > div > div.ui-post-creator > a.ui-post-creator__author").href
-    days = get_user_cache(accountURL);
+    const cacheResult = get_user_cache(accountURL);
+    const isCached = (typeof cacheResult === "object");
+    let days, verified, expired;
+    if (isCached) {
+        ({days, verified, expired} = cacheResult);
+    }
 
-    if (!days) {
-        const response = await fetch(accountURL);
-        if (response.ok) {
-            // Read the html source of the user page
-            const wholePage = await response.text();
-
-            // Extract the part that has JSON.parse(...)
-            const regex = /JSON\.parse\(".+"\);/s;
-            const jsonParse = regex.exec(wholePage)[0];
-
-            // Execute the string extracted. Should be valid JS
-            const json = eval(jsonParse); // eslint-disable-line no-eval
-
-            // Get account creation timestamp
+    let htmlElement;
+    if (!isCached || expired) {
+        const json = await request_user_profile(accountURL);
+        if (json) {
             const createdTs = json.data.profile.creationTs;
 
             // Convert to days past since
@@ -142,34 +162,44 @@ async function process_single(postElem)
             days = Math.ceil(days / (1000 * 3600 * 24));
 
             set_user_cache(accountURL, days);
+            htmlElement = build_element_daysOld(days);
         }
         else {
-            days = "Request failed";
+            htmlElement = build_element_errorMsg();
         }
+    }
+    else /*user is cached and not expired*/{
+        htmlElement = build_element_daysOld(days);
     }
     // Append new element to post
     const postHeader = postElem.querySelector("header > div > div.ui-post-creator");
-    postHeader.append(create_text_element(days));
+    postHeader.append(htmlElement);
 }
 
-function create_text_element(days)
+function build_element_errorMsg()
 {
-    let color = "color: red"
-    let fontSize = "font-size: 14px";
+    color = "orange";
+    fontSize = 14;
+    extraStyle = "margin-left: 10px";
+    message = "Request failed";
+    return create_text_element(message, fontSize, color, extraStyle);
+}
 
-    if (typeof days == 'number') {
-        // Convert days to RGB
-        color = rgb_to_hex(...days_to_rgb(days));
-        color = `color: ${color}`;
-        fontSize = days < 100 ? 20 : 14;
-        fontSize = `font-size: ${fontSize}px`;
-    }
+function build_element_daysOld(days)
+{
+    const color = rgb_to_hex(...days_to_rgb(days));
+    const fontSize = days < 100 ? 20 : 14;
+    const extraStyle = "margin-left: 10px;"
+    const message = `${days} days old`
+    return create_text_element(message, fontSize, color, extraStyle);
+}
 
-    let element = document.createElement("span");
-	element.textContent = `${days} days old`;
-    element.style = `margin-left: 10px; ${color}; ${fontSize}`;
-
-	return element;
+function create_text_element(textContent, fontSize, color, extraStyle)
+{
+    const element = document.createElement("span");
+    element.textContent = textContent;
+    element.style = `color: ${color}; font-size: ${fontSize}px; ${extraStyle}`;
+    return element;
 }
 
 function days_to_rgb(days)
