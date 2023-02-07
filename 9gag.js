@@ -143,6 +143,10 @@ async function process_single(postElem)
     }
 
     const accountURL = postElem.querySelector("header > div > div.ui-post-creator > a.ui-post-creator__author").href;
+    // Hidden users have 'javascript:void' instead of an url
+    if (accountURL === "javascript:void(0);") {
+        return;
+    }
 
     const cacheResult = get_user_cache(accountURL);
     const isCached = (typeof cacheResult === "object");
@@ -151,7 +155,8 @@ async function process_single(postElem)
         ({days, verified, expired} = cacheResult);
     }
 
-    let htmlElement;
+    let daysOldElement = null;
+    let verifiedElement = null;
     if (!isCached || expired) {
         const json = await request_user_profile(accountURL);
         if (json) {
@@ -162,18 +167,19 @@ async function process_single(postElem)
             days = Math.ceil(days / (1000 * 3600 * 24));
 
             set_user_cache(accountURL, days);
-            htmlElement = build_element_daysOld(days);
+            daysOldElement = build_element_daysOld(days);
         }
         else {
-            htmlElement = build_element_errorMsg();
+            daysOldElement = build_element_errorMsg();
         }
     }
     else /*user is cached and not expired*/{
-        htmlElement = build_element_daysOld(days);
+        daysOldElement = build_element_daysOld(days);
+        verifiedElement = build_element_daysOld(days);
     }
     // Append new element to post
     const postHeader = postElem.querySelector("header > div > div.ui-post-creator");
-    postHeader.append(htmlElement);
+    postHeader.append(daysOldElement);
 }
 
 function build_element_errorMsg()
