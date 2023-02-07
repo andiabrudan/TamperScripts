@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         9gag show profile age
-// @version      0.4.0
+// @version      0.4.1
 // @updateURL    https://raw.githubusercontent.com/andiabrudan/TamperScripts/master/9gag.js
 // @downloadURL  https://raw.githubusercontent.com/andiabrudan/TamperScripts/master/9gag.js
 // @supportURL   https://github.com/andiabrudan/TamperScripts/issues
@@ -29,7 +29,9 @@ const BOT_WARNING_MESSAGE = "This user is likely a bot. \
 This has been determined by looking at the user's recent history. \
 There are a large number of articles posted in a short amount of time, \
 typical of bot activity. Please manually review before blocking. \
-";
+\n\nHeuristic method used to identify potential bots is based on \
+the timespan between their recent posts, where a span of less than 12h \
+over the last 10 posts indicates bot-like behaviour.";
 
 function get_user_cache(accountURL)
 {
@@ -214,13 +216,14 @@ function analyze_user_posts(postsJSON) {
         return false;
 
     let cumulativeDelta = 0;
-    let lastPostTs = new Date() / 1000;
-    for (const post of postsJSON) {
-        cumulativeDelta += lastPostTs - post.creationTs;
-        lastPostTs = post.creationTs;
+    let lastPostTs = postsJSON[0].creationTs;
+    for (let i = 1; i < postsJSON.length; i++) {
+        const currentPostTs = postsJSON[i].creationTs;
+        cumulativeDelta += lastPostTs - currentPostTs;
+        lastPostTs = currentPostTs;
     }
 
-    const THRESHOLD_INTERVAL = 12 * 60 * 60;
+    const THRESHOLD_INTERVAL = 6 * 60 * 60;
     if ((cumulativeDelta / postsJSON.length) < THRESHOLD_INTERVAL){
         return true;
     }
